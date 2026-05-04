@@ -1,0 +1,58 @@
+{
+  "_readme": "OSINT--N config file. Fill in your API keys. Leave unused keys as empty strings.",
+
+  "general": {
+    "tool_name": "OSINT--N",
+    "version": "1.0.0",
+    "output_dir": "./results",
+    "log_level": "INFO",
+    "timeout_seconds": 15,
+    "max_threads": 10,
+    "save_results": true,
+    "export_formats": ["json", "csv", "html"]
+  },
+
+  "api_keys": {
+    "shodan":           "",
+    "virustotal":       "",
+    "hunter_io":        "",
+    "haveibeenpwned":   "",
+    "numverify":        "",
+    "ipinfo_token":     "",
+    "securitytrails":   "",
+    "emailrep":         ""
+  },
+
+  "modules": {
+    "email":      true,
+    "domain":     true,
+    "ip":         true,
+    "username":   true,
+    "phone":      true,
+    "subdomain":  true,
+    "wayback":    true,
+    "breach":     true
+  },
+
+  "proxy": {
+    "enabled": false,
+    "http":  "http://127.0.0.1:8080",
+    "https": "https://127.0.0.1:8080"
+  },
+
+  "rate_limiting": {
+    "requests_per_second": 2,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 5
+  },
+
+  "social_media_platforms": [
+    "github", "twitter", "instagram", "reddit",
+    "linkedin", "tiktok", "facebook", "youtube",
+    "telegram", "pinterest", "twitch", "snapchat"
+  ],
+
+  "dns_record_types": ["A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME"],
+
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+}
