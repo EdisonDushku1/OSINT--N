@@ -32,7 +32,7 @@ phonenumbers>=8.13.35
 pyIsEmail>=1.3.1
 
 # ── Subdomain Discovery ───────────────────────
-sublist3r>=1.1
+sublist3r>=1.0
 
 # ── Web Archive (Wayback Machine) ────────────
 waybackpy>=3.0.6
