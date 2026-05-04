@@ -22,6 +22,21 @@ import os
 import sys
 import socket
 import csv
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # reads .env automatically
+
+# Then access keys like this:
+HUNTER_KEY      = os.getenv("HUNTER_IO_API_KEY")
+HIBP_KEY        = os.getenv("HAVEIBEENPWNED_API_KEY")
+SHODAN_KEY      = os.getenv("SHODAN_API_KEY")
+IPINFO_TOKEN    = os.getenv("IPINFO_TOKEN")
+VIRUSTOTAL_KEY  = os.getenv("VIRUSTOTAL_API_KEY")
+SECURITYTRAILS  = os.getenv("SECURITYTRAILS_API_KEY")
+NUMVERIFY_KEY   = os.getenv("NUMVERIFY_API_KEY")
+EMAILREP_KEY    = os.getenv("EMAILREP_API_KEY")
+
 from datetime import datetime
 from pathlib import Path
 
