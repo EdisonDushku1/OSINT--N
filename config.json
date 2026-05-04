@@ -1,26 +1,15 @@
 {
-  "_readme": "OSINT--N config file. Fill in your API keys. Leave unused keys as empty strings.",
+  "_readme": "OSINT--N config v2.0.0 — API keys go in .env, not here.",
 
   "general": {
     "tool_name": "OSINT--N",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "output_dir": "./results",
     "log_level": "INFO",
     "timeout_seconds": 15,
     "max_threads": 10,
     "save_results": true,
     "export_formats": ["json", "csv", "html"]
-  },
-
-  "api_keys": {
-    "shodan":           "",
-    "virustotal":       "",
-    "hunter_io":        "",
-    "haveibeenpwned":   "",
-    "numverify":        "",
-    "ipinfo_token":     "",
-    "securitytrails":   "",
-    "emailrep":         ""
   },
 
   "modules": {
@@ -30,8 +19,7 @@
     "username":   true,
     "phone":      true,
     "subdomain":  true,
-    "wayback":    true,
-    "breach":     true
+    "metadata":   true
   },
 
   "proxy": {
@@ -46,13 +34,12 @@
     "retry_delay_seconds": 5
   },
 
-  "social_media_platforms": [
-    "github", "twitter", "instagram", "reddit",
-    "linkedin", "tiktok", "facebook", "youtube",
-    "telegram", "pinterest", "twitch", "snapchat"
-  ],
-
   "dns_record_types": ["A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME"],
 
-  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+  "social_media_platforms": [
+    "github", "twitter", "instagram", "reddit", "tiktok",
+    "pinterest", "twitch", "youtube", "telegram", "snapchat",
+    "soundcloud", "spotify", "pastebin", "keybase", "gitlab",
+    "medium", "devto", "hackerone", "bugcrowd", "producthunt"
+  ]
 }
