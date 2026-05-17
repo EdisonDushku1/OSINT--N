@@ -1,0 +1,114 @@
+"""
+OSINT--N | Module: Port Scanner (Async TCP)
+Scans common ports and identifies services
+"""
+
+import asyncio
+import socket
+from datetime import datetime
+from rich.console import Console
+from rich.table import Table
+from rich import box
+from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn, SpinnerColumn
+
+console = Console()
+
+# Common ports with service names
+COMMON_PORTS = {
+    21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS",
+    80: "HTTP", 110: "POP3", 111: "RPC", 135: "MSRPC", 139: "NetBIOS",
+    143: "IMAP", 443: "HTTPS", 445: "SMB", 993: "IMAPS", 995: "POP3S",
+    1433: "MSSQL", 1521: "Oracle", 2181: "Zookeeper", 2375: "Docker",
+    3000: "Dev Server", 3306: "MySQL", 3389: "RDP", 4200: "Angular Dev",
+    4443: "HTTPS Alt", 5000: "Flask/Dev", 5432: "PostgreSQL",
+    5900: "VNC", 6379: "Redis", 6443: "Kubernetes API",
+    7001: "WebLogic", 7474: "Neo4j", 8000: "HTTP Alt",
+    8080: "HTTP Proxy", 8081: "HTTP Alt", 8443: "HTTPS Alt",
+    8888: "Jupyter", 9000: "PHP-FPM", 9090: "Prometheus",
+    9200: "Elasticsearch", 9300: "Elasticsearch Cluster",
+    27017: "MongoDB", 28017: "MongoDB Web",
+}
+
+async def scan_port(host: str, port: int, timeout: float = 2.0) -> dict | None:
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=timeout,
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        service = COMMON_PORTS.get(port, "Unknown")
+        return {"port": port, "service": service, "state": "open"}
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        return None
+
+async def _scan_all(host: str, ports: list, timeout: float) -> list:
+    tasks = [scan_port(host, p, timeout) for p in ports]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [r for r in results if r and isinstance(r, dict)]
+
+def run(target: str, config: dict) -> dict:
+    console.rule(f"[bold cyan] PORT SCANNER — {target}")
+    data = {"module": "portscan", "target": target}
+    timeout = min(config["general"].get("timeout_seconds", 10), 5)
+
+    # Resolve hostname
+    try:
+        ip = socket.gethostbyname(target)
+        if ip != target:
+            data["resolved_ip"] = ip
+            console.print(f"  [dim]Resolved → {ip}[/dim]")
+    except Exception as e:
+        console.print(f"[red][!] Cannot resolve {target}: {e}[/red]")
+        return data
+
+    ports = list(COMMON_PORTS.keys())
+    console.print(f"\n  [cyan][*] Scanning {len(ports)} common ports on {ip}...[/cyan]\n")
+
+    start = datetime.now()
+    open_ports = asyncio.run(_scan_all(ip, ports, timeout))
+    elapsed = (datetime.now() - start).total_seconds()
+
+    if open_ports:
+        t = Table(
+            title=f"Open Ports — {target}",
+            box=box.ROUNDED,
+            border_style="cyan",
+            title_style="bold cyan",
+        )
+        t.add_column("Port",    style="bold yellow", justify="right")
+        t.add_column("Service", style="bold white")
+        t.add_column("State",   style="bold green", justify="center")
+
+        # Risk highlights
+        risky = {23: "DANGER: Telnet is unencrypted!", 21: "Warn: FTP is unencrypted",
+                 2375: "DANGER: Docker API exposed!", 3389: "Warn: RDP exposed",
+                 9200: "Warn: Elasticsearch may be open!", 27017: "Warn: MongoDB exposed",
+                 6379: "Warn: Redis exposed", 5900: "Warn: VNC exposed"}
+
+        for entry in sorted(open_ports, key=lambda x: x["port"]):
+            port = entry["port"]
+            svc  = entry["service"]
+            note = risky.get(port, "")
+            t.add_row(
+                str(port),
+                f"{svc} [dim red]{note}[/dim red]" if note else svc,
+                "✔ OPEN",
+            )
+            data[f"port_{port}"] = svc
+
+        console.print(t)
+    else:
+        console.print("  [yellow]No open ports found in common port list.[/yellow]")
+
+    data["open_count"]  = len(open_ports)
+    data["ports_open"]  = ", ".join(str(e["port"]) for e in sorted(open_ports, key=lambda x: x["port"]))
+    data["scan_time_s"] = f"{elapsed:.2f}s"
+    console.print(
+        f"\n  [green]{len(open_ports)} open port(s) found[/green] "
+        f"[dim]| Scanned {len(ports)} ports in {elapsed:.2f}s[/dim]\n"
+    )
+    return data
