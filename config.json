@@ -1,13 +1,13 @@
 {
-  "_readme": "OSINT--N config v2.0.0 — API keys go in .env, not here.",
+  "_readme": "OSINT--N config v3.0.0 — API keys go in .env, not here.",
 
   "general": {
     "tool_name": "OSINT--N",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "output_dir": "./results",
     "log_level": "INFO",
     "timeout_seconds": 15,
-    "max_threads": 10,
+    "max_threads": 20,
     "save_results": true,
     "export_formats": ["json", "csv", "html"]
   },
@@ -19,7 +19,8 @@
     "username":   true,
     "phone":      true,
     "subdomain":  true,
-    "metadata":   true
+    "metadata":   true,
+    "portscan":   true
   },
 
   "proxy": {
@@ -29,17 +30,28 @@
   },
 
   "rate_limiting": {
-    "requests_per_second": 2,
+    "requests_per_second": 5,
     "retry_attempts": 3,
-    "retry_delay_seconds": 5
+    "retry_delay_seconds": 3
   },
 
   "dns_record_types": ["A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME"],
 
+  "port_scan": {
+    "timeout_seconds": 2,
+    "scan_top_ports": true
+  },
+
   "social_media_platforms": [
     "github", "twitter", "instagram", "reddit", "tiktok",
     "pinterest", "twitch", "youtube", "telegram", "snapchat",
-    "soundcloud", "spotify", "pastebin", "keybase", "gitlab",
-    "medium", "devto", "hackerone", "bugcrowd", "producthunt"
+    "facebook", "linkedin", "tumblr", "flickr", "vimeo",
+    "gitlab", "bitbucket", "medium", "devto", "hackerone",
+    "bugcrowd", "codepen", "replit", "stackoverflow",
+    "soundcloud", "spotify", "bandcamp", "lastfm",
+    "behance", "dribbble", "deviantart", "artstation",
+    "steam", "roblox", "lichess", "chess",
+    "pastebin", "keybase", "producthunt", "vk",
+    "mastodon", "bluesky", "linktree"
   ]
 }
