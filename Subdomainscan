@@ -1,13 +1,16 @@
 """
 OSINT--N | Module: Subdomain Discovery
+Combines crt.sh certificate transparency + async wordlist bruteforce
 """
 
 import socket
 import asyncio
 import httpx
+import requests
 from rich.console import Console
 from rich.table import Table
 from rich import box
+from rich.progress import Progress, BarColumn, TextColumn, SpinnerColumn
 
 console = Console()
 
@@ -20,51 +23,129 @@ WORDLIST = [
     "monitor", "metrics", "grafana", "jira", "confluence", "office", "email",
     "mx", "mx1", "mx2", "pop", "imap", "autodiscover", "cpanel", "whm",
     "phpmyadmin", "db", "database", "mysql", "postgres", "redis", "elastic",
-    "s3", "files", "upload", "download", "images", "img", "assets", "backup"
+    "s3", "files", "upload", "download", "images", "img", "backup", "cloud",
+    "data", "internal", "intranet", "extranet", "proxy", "gateway", "load",
+    "lb", "web", "web1", "web2", "node", "node1", "node2", "k8s", "docker",
+    "registry", "vault", "kibana", "logstash", "elasticsearch", "rabbit",
+    "queue", "worker", "scheduler", "cron", "api2", "v2", "v1", "v3",
+    "mobile", "mobile-api", "wap", "uat", "qa", "preprod", "sandbox",
+    "mx3", "ns3", "ns4", "mail2", "smtp2", "pop3", "imap4", "exchange",
+    "owa", "webdisk", "ftp2", "sftp", "ssh", "rdp", "remote2", "vpn2",
+    "openvpn", "wireless", "wifi", "voip", "sip", "pbx", "asterisk",
+    "cal", "calendar", "chat", "slack", "meet", "video", "stream",
+    "live", "tv", "radio", "podcast", "forum2", "board", "community",
+    "store", "ecom", "checkout", "cart", "pay", "payment", "billing",
+    "account", "accounts", "my", "user", "users", "member", "members",
+    "partner", "partners", "agent", "agents", "affiliate", "affiliates",
+    "hr", "crm", "erp", "ldap", "ad", "directory", "siem", "ids", "waf",
 ]
+
+
+def crtsh_lookup(domain: str) -> list:
+    """Query crt.sh for certificate transparency subdomains — free, no API key needed."""
+    try:
+        r = requests.get(
+            f"https://crt.sh/?q=%.{domain}&output=json",
+            timeout=20,
+            headers={"User-Agent": "OSINT-N/3.0"},
+        )
+        if r.status_code != 200:
+            return []
+        entries = r.json()
+        subs = set()
+        for entry in entries:
+            name = entry.get("name_value", "")
+            for line in name.splitlines():
+                line = line.strip().lower().lstrip("*.")
+                if line.endswith(f".{domain}") or line == domain:
+                    subs.add(line)
+        return sorted(subs)
+    except Exception as e:
+        console.print(f"  [dim red][!] crt.sh error: {e}[/dim red]")
+        return []
+
 
 async def check_subdomain(client: httpx.AsyncClient, fqdn: str) -> dict | None:
     try:
-        ip = socket.gethostbyname(fqdn)
+        ip = await asyncio.get_event_loop().run_in_executor(None, socket.gethostbyname, fqdn)
         try:
             r = await client.get(f"http://{fqdn}", timeout=5, follow_redirects=True)
             status = r.status_code
-        except:
+        except Exception:
             status = "DNS only"
-        return {"subdomain": fqdn, "ip": ip, "status": status}
-    except:
+        return {"subdomain": fqdn, "ip": ip, "status": status, "source": "wordlist"}
+    except Exception:
         return None
 
-async def _run_async(target: str) -> list:
+
+async def _run_wordlist_async(target: str) -> list:
     found = []
     headers = {"User-Agent": "Mozilla/5.0"}
     async with httpx.AsyncClient(headers=headers) as client:
-        tasks = [
-            check_subdomain(client, f"{sub}.{target}")
-            for sub in WORDLIST
-        ]
+        tasks = [check_subdomain(client, f"{sub}.{target}") for sub in WORDLIST]
         results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
+
+
+def resolve_crtsh_entry(fqdn: str) -> dict | None:
+    try:
+        ip = socket.gethostbyname(fqdn)
+        return {"subdomain": fqdn, "ip": ip, "status": "DNS only", "source": "crt.sh"}
+    except Exception:
+        return None
+
 
 def run(target: str, config: dict) -> dict:
     console.rule(f"[bold cyan] SUBDOMAIN DISCOVERY — {target}")
     data = {"module": "subdomain", "target": target}
+    all_found = {}
 
-    console.print(f"  [dim]Checking {len(WORDLIST)} subdomains asynchronously...[/dim]\n")
-    found = asyncio.run(_run_async(target))
+    # ── Step 1: crt.sh certificate transparency ─
+    console.print(f"\n  [cyan][*] Querying crt.sh (certificate transparency)...[/cyan]")
+    crt_subs = crtsh_lookup(target)
+    console.print(f"  [green][+] crt.sh returned {len(crt_subs)} unique subdomain(s)[/green]")
 
-    t = Table(title=f"Subdomains of {target}", box=box.ROUNDED,
-              border_style="cyan", title_style="bold cyan")
-    t.add_column("Subdomain", style="bold yellow")
-    t.add_column("IP",        style="white")
-    t.add_column("HTTP",      style="cyan", justify="center")
+    for fqdn in crt_subs:
+        entry = resolve_crtsh_entry(fqdn)
+        if entry:
+            all_found[fqdn] = entry
 
-    for entry in found:
-        t.add_row(entry["subdomain"], entry["ip"], str(entry["status"]))
+    # ── Step 2: wordlist bruteforce ─────────────
+    console.print(f"\n  [cyan][*] Bruteforcing {len(WORDLIST)} common subdomains...[/cyan]\n")
+    wordlist_results = asyncio.run(_run_wordlist_async(target))
+    for entry in wordlist_results:
+        fqdn = entry["subdomain"]
+        if fqdn not in all_found:
+            all_found[fqdn] = entry
+
+    # ── Output table ────────────────────────────
+    t = Table(
+        title=f"Subdomains of {target}",
+        box=box.ROUNDED,
+        border_style="cyan",
+        title_style="bold cyan",
+    )
+    t.add_column("Subdomain",  style="bold yellow")
+    t.add_column("IP",         style="white")
+    t.add_column("HTTP",       style="cyan", justify="center")
+    t.add_column("Source",     style="dim", justify="center")
+
+    for fqdn, entry in sorted(all_found.items()):
+        status = str(entry.get("status", "N/A"))
+        source = entry.get("source", "")
+        src_str = "[green]crt.sh[/green]" if source == "crt.sh" else "[blue]wordlist[/blue]"
+        t.add_row(fqdn, entry.get("ip", "N/A"), status, src_str)
 
     console.print(t)
-    console.print(f"\n  [green]{len(found)} subdomain(s) discovered.[/green]\n")
 
-    data["count"]      = len(found)
-    data["subdomains"] = ", ".join(e["subdomain"] for e in found)
+    total = len(all_found)
+    crt_count = sum(1 for e in all_found.values() if e["source"] == "crt.sh")
+    wl_count  = sum(1 for e in all_found.values() if e["source"] == "wordlist")
+    console.print(f"\n  [green]✔ {total} subdomain(s) discovered[/green] "
+                  f"[dim](crt.sh: {crt_count} | wordlist: {wl_count})[/dim]\n")
+
+    data["total_found"]        = total
+    data["crtsh_count"]        = crt_count
+    data["wordlist_count"]     = wl_count
+    data["subdomains"]         = ", ".join(sorted(all_found.keys()))
     return data
