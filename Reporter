@@ -1,6 +1,6 @@
 """
-OSINT--N | Module: Report Generator
-Saves results as JSON, CSV, and a styled HTML report.
+OSINT--N | Module: Report Generator v3
+Saves results as JSON, CSV, and a styled HTML report with summary stats.
 """
 
 import json
@@ -17,96 +17,174 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSINT--N Report | {module} | {target}</title>
+<title>OSINT--N | {module} | {target}</title>
 <style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  :root {{
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --border:  #21262d;
+    --accent:  #58a6ff;
+    --yellow:  #e3b341;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --dim:     #8b949e;
+    --text:    #c9d1d9;
+  }}
   body {{
-    font-family: 'Courier New', monospace;
-    background: #0d1117;
-    color: #c9d1d9;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
     padding: 2rem;
+    line-height: 1.6;
   }}
   header {{
-    border-bottom: 2px solid #21262d;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
     padding-bottom: 1.5rem;
     margin-bottom: 2rem;
+    gap: 1rem;
+    flex-wrap: wrap;
   }}
-  header h1 {{ color: #58a6ff; font-size: 1.8rem; letter-spacing: 2px; }}
-  header p  {{ color: #8b949e; margin-top: .4rem; font-size: .9rem; }}
+  header h1 {{
+    font-family: 'Courier New', monospace;
+    color: var(--accent);
+    font-size: 1.6rem;
+    letter-spacing: 3px;
+    font-weight: 700;
+  }}
+  header p {{ color: var(--dim); margin-top: .3rem; font-size: .85rem; }}
+  .badges {{ display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }}
   .badge {{
     display: inline-block;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    padding: .2rem .7rem;
-    font-size: .8rem;
-    margin-right: .5rem;
-    color: #58a6ff;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: .25rem .8rem;
+    font-size: .78rem;
+    color: var(--accent);
+    font-family: monospace;
   }}
-  .card {{
-    background: #161b22;
-    border: 1px solid #21262d;
+  .summary-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }}
+  .stat-card {{
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
+    padding: 1rem 1.2rem;
+    text-align: center;
+  }}
+  .stat-card .num {{ font-size: 1.8rem; font-weight: 700; color: var(--accent); font-family: monospace; }}
+  .stat-card .label {{ font-size: .78rem; color: var(--dim); margin-top: .3rem; text-transform: uppercase; letter-spacing: 1px; }}
+  .card {{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
     margin-bottom: 2rem;
     overflow: hidden;
   }}
   .card-header {{
-    background: #21262d;
-    padding: .8rem 1.2rem;
-    font-size: 1rem;
-    font-weight: bold;
-    color: #58a6ff;
+    background: var(--border);
+    padding: .7rem 1.2rem;
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--accent);
     letter-spacing: 1px;
     text-transform: uppercase;
+    font-family: monospace;
   }}
-  table {{
-    width: 100%;
-    border-collapse: collapse;
-  }}
+  table {{ width: 100%; border-collapse: collapse; }}
   td {{
-    padding: .6rem 1.2rem;
-    border-bottom: 1px solid #21262d;
-    font-size: .88rem;
+    padding: .55rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    font-size: .85rem;
+    vertical-align: top;
   }}
   tr:last-child td {{ border-bottom: none; }}
+  tr:nth-child(even) {{ background: rgba(255,255,255,.02); }}
   td:first-child {{
-    color: #e3b341;
-    width: 35%;
-    font-weight: bold;
+    color: var(--yellow);
+    width: 32%;
+    font-weight: 600;
+    font-family: monospace;
+    font-size: .8rem;
+    white-space: nowrap;
   }}
-  td:last-child {{ color: #c9d1d9; word-break: break-all; }}
-  .found   {{ color: #3fb950; font-weight: bold; }}
-  .missing {{ color: #f85149; }}
+  td:last-child {{ color: var(--text); word-break: break-all; }}
+  .val-found   {{ color: var(--green); font-weight: 600; }}
+  .val-missing {{ color: var(--red); }}
+  .val-warn    {{ color: #e3b341; }}
+  .val-na      {{ color: var(--dim); font-style: italic; }}
   footer {{
     margin-top: 3rem;
-    border-top: 1px solid #21262d;
+    border-top: 1px solid var(--border);
     padding-top: 1rem;
-    color: #8b949e;
-    font-size: .8rem;
+    color: var(--dim);
+    font-size: .78rem;
     text-align: center;
   }}
+  footer a {{ color: var(--accent); text-decoration: none; }}
 </style>
 </head>
 <body>
 <header>
-  <h1>⚡ OSINT--N Report</h1>
-  <p>
-    <span class="badge">Module: {module}</span>
-    <span class="badge">Target: {target}</span>
-    <span class="badge">{timestamp}</span>
-  </p>
+  <div>
+    <h1>⚡ OSINT--N Report</h1>
+    <p>Open Source Intelligence Toolkit</p>
+    <div class="badges">
+      <span class="badge">MODULE: {module}</span>
+      <span class="badge">TARGET: {target}</span>
+      <span class="badge">{timestamp}</span>
+    </div>
+  </div>
 </header>
 
+{summary_section}
+
 <div class="card">
-  <div class="card-header">🔍 Findings</div>
+  <div class="card-header">🔍 Full Findings</div>
   <table>
     {rows}
   </table>
 </div>
 
-<footer>Generated by OSINT--N &nbsp;|&nbsp; github.com/EdisonDushku1/OSINT--N &nbsp;|&nbsp; For authorized use only.</footer>
+<footer>
+  Generated by <a href="https://github.com/EdisonDushku1/OSINT--N">OSINT--N v3.0.0</a>
+  &nbsp;|&nbsp; For authorized use only &nbsp;|&nbsp; {timestamp}
+</footer>
 </body>
 </html>"""
+
+
+def _make_summary(data: dict, module: str) -> str:
+    cards = []
+    if module == "username":
+        cards.append(("found_count",   "Platforms Found",  data.get("found_count", 0)))
+        cards.append(("checked_total", "Total Checked",    data.get("checked_total", 0)))
+    elif module == "subdomain":
+        cards.append(("total_found",   "Subdomains Found", data.get("total_found", 0)))
+        cards.append(("crtsh_count",   "Via crt.sh",       data.get("crtsh_count", 0)))
+        cards.append(("wordlist_count","Via Wordlist",      data.get("wordlist_count", 0)))
+    elif module == "portscan":
+        cards.append(("open_count",    "Open Ports",       data.get("open_count", 0)))
+    elif module == "email":
+        cards.append(("breaches_found","Breaches Found",   data.get("breaches_found", "?")))
+        cards.append(("disposable",    "Disposable",       "Yes" if data.get("disposable_email") else "No"))
+
+    if not cards:
+        return ""
+
+    inner = "".join(
+        f'<div class="stat-card"><div class="num">{v}</div><div class="label">{label}</div></div>'
+        for _, label, v in cards
+    )
+    return f'<div class="summary-grid">{inner}</div>'
 
 
 def save(data: dict, config: dict):
@@ -121,8 +199,7 @@ def save(data: dict, config: dict):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base      = f"{module}_{target}_{timestamp}"
     formats   = config["general"].get("export_formats", ["json"])
-
-    saved = []
+    saved     = []
 
     # JSON
     if "json" in formats:
@@ -148,19 +225,24 @@ def save(data: dict, config: dict):
         for k, v in data.items():
             if k == "module":
                 continue
-            val_class = ""
-            val       = str(v) if v else "N/A"
-            if "found" in k.lower() and str(v).lower() in ("true", "yes"):
-                val_class = "found"
-            elif val == "N/A":
-                val_class = "missing"
-            rows += f'<tr><td>{k}</td><td class="{val_class}">{val}</td></tr>\n'
+            val = str(v) if v is not None else "N/A"
+            css = ""
+            if val in ("N/A", "None", ""):
+                css = "val-na"
+            elif any(x in val.lower() for x in ["missing", "danger", "spoofing"]):
+                css = "val-missing"
+            elif any(x in val.lower() for x in ["warn", "⚠"]):
+                css = "val-warn"
+            elif any(x in k.lower() for x in ["found", "valid", "open"]) and str(v).lower() in ("true", "yes", "✔"):
+                css = "val-found"
+            rows += f'<tr><td>{k}</td><td class="{css}">{val}</td></tr>\n'
 
         html = HTML_TEMPLATE.format(
             module=module.upper(),
             target=data.get("target", "unknown"),
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            rows=rows
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            rows=rows,
+            summary_section=_make_summary(data, module),
         )
         p.write_text(html, encoding="utf-8")
         saved.append(str(p))
