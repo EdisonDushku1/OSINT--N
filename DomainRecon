@@ -1,12 +1,15 @@
 """
 OSINT--N | Module: Domain Reconnaissance
+WHOIS + DNS + SSL + HTTP Headers + Wayback + VirusTotal + SecurityTrails
 """
 
 import os
 import socket
+import ssl
 import requests
 import dns.resolver
 import whois
+from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -16,8 +19,9 @@ console = Console()
 def run(target: str, config: dict) -> dict:
     console.rule(f"[bold cyan] DOMAIN RECON — {target}")
     data = {"module": "domain", "target": target}
+    timeout = config["general"]["timeout_seconds"]
 
-    # WHOIS
+    # ── WHOIS ─────────────────────────────────
     try:
         w = whois.whois(target)
         data["registrar"]     = w.registrar
@@ -31,31 +35,110 @@ def run(target: str, config: dict) -> dict:
     except Exception as e:
         data["whois_error"] = str(e)
 
-    # DNS Records
-    for rtype in config.get("dns_record_types", ["A", "AAAA", "MX", "NS", "TXT", "SOA"]):
+    # ── DNS Records ───────────────────────────
+    for rtype in config.get("dns_record_types", ["A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME"]):
         try:
             answers = dns.resolver.resolve(target, rtype)
             data[f"dns_{rtype}"] = " | ".join(str(r) for r in answers)
-        except:
+        except Exception:
             data[f"dns_{rtype}"] = "N/A"
 
-    # Resolved IP
+    # ── Resolved IP + Reverse DNS ─────────────
     try:
         data["resolved_ip"] = socket.gethostbyname(target)
-    except:
+    except Exception:
         data["resolved_ip"] = "N/A"
-
-    # Reverse DNS
     try:
         data["reverse_dns"] = socket.gethostbyaddr(data.get("resolved_ip", ""))[0]
-    except:
+    except Exception:
         data["reverse_dns"] = "N/A"
 
-    # Wayback Machine
+    # ── SPF / DKIM / DMARC checks (free, DNS) ─
+    try:
+        txt = dns.resolver.resolve(target, "TXT")
+        txt_records = [str(r) for r in txt]
+        spf = [r for r in txt_records if "v=spf1" in r.lower()]
+        data["spf_record"]   = spf[0] if spf else "MISSING"
+        data["spf_status"]   = "✔ Present" if spf else "✘ Missing — email spoofing possible"
+    except Exception:
+        data["spf_record"] = "N/A"
+
+    try:
+        dmarc = dns.resolver.resolve(f"_dmarc.{target}", "TXT")
+        dmarc_records = [str(r) for r in dmarc]
+        data["dmarc_record"] = dmarc_records[0] if dmarc_records else "MISSING"
+        data["dmarc_status"] = "✔ Present" if dmarc_records else "✘ Missing"
+    except Exception:
+        data["dmarc_record"] = "MISSING"
+        data["dmarc_status"] = "✘ Missing — no DMARC policy"
+
+    # ── SSL Certificate ───────────────────────
+    try:
+        ctx = ssl.create_default_context()
+        with ctx.wrap_socket(socket.socket(), server_hostname=target) as s:
+            s.settimeout(timeout)
+            s.connect((target, 443))
+            cert = s.getpeercert()
+        subject = dict(x[0] for x in cert.get("subject", []))
+        issuer  = dict(x[0] for x in cert.get("issuer", []))
+        not_after  = cert.get("notAfter", "N/A")
+        not_before = cert.get("notBefore", "N/A")
+        data["ssl_subject"]    = subject.get("commonName", "N/A")
+        data["ssl_issuer"]     = issuer.get("organizationName", "N/A")
+        data["ssl_valid_from"] = not_before
+        data["ssl_valid_to"]   = not_after
+        # Check expiry
+        try:
+            exp = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+            days_left = (exp - datetime.utcnow()).days
+            data["ssl_days_remaining"] = days_left
+            if days_left < 14:
+                console.print(f"\n  [bold red][!] SSL expires in {days_left} days![/bold red]\n")
+        except Exception:
+            pass
+        san = cert.get("subjectAltName", [])
+        data["ssl_san"] = ", ".join(v for _, v in san[:10])
+    except Exception as e:
+        data["ssl_error"] = str(e)
+
+    # ── HTTP Headers ──────────────────────────
+    try:
+        r = requests.get(
+            f"https://{target}",
+            timeout=timeout,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        headers = r.headers
+        data["http_status"]          = r.status_code
+        data["server_header"]        = headers.get("Server", "N/A")
+        data["x_powered_by"]         = headers.get("X-Powered-By", "N/A")
+        data["content_type"]         = headers.get("Content-Type", "N/A")
+        data["x_frame_options"]      = headers.get("X-Frame-Options", "MISSING ⚠")
+        data["x_xss_protection"]     = headers.get("X-XSS-Protection", "MISSING ⚠")
+        data["strict_transport"]     = headers.get("Strict-Transport-Security", "MISSING ⚠")
+        data["content_security_pol"] = headers.get("Content-Security-Policy", "MISSING ⚠")
+        data["referrer_policy"]      = headers.get("Referrer-Policy", "N/A")
+        data["final_url"]            = r.url
+    except Exception as e:
+        data["http_error"] = str(e)
+
+    # ── robots.txt ────────────────────────────
+    try:
+        r = requests.get(f"https://{target}/robots.txt", timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            lines = [l.strip() for l in r.text.splitlines() if l.strip() and not l.startswith("#")]
+            data["robots_txt"] = " | ".join(lines[:10]) or "Empty"
+        else:
+            data["robots_txt"] = f"HTTP {r.status_code}"
+    except Exception:
+        data["robots_txt"] = "N/A"
+
+    # ── Wayback Machine ───────────────────────
     try:
         r = requests.get(
             f"https://archive.org/wayback/available?url={target}",
-            timeout=config["general"]["timeout_seconds"]
+            timeout=timeout,
         ).json()
         snap = r.get("archived_snapshots", {}).get("closest", {})
         data["wayback_available"]  = snap.get("available", False)
@@ -64,30 +147,14 @@ def run(target: str, config: dict) -> dict:
     except Exception as e:
         data["wayback_error"] = str(e)
 
-    # SecurityTrails — DNS history
-    st_key = os.getenv("SECURITYTRAILS_API_KEY", "")
-    if st_key:
-        try:
-            r = requests.get(
-                f"https://api.securitytrails.com/v1/domain/{target}",
-                headers={"APIKEY": st_key},
-                timeout=config["general"]["timeout_seconds"]
-            ).json()
-            data["securitytrails_hostname"] = r.get("hostname", "N/A")
-            data["securitytrails_alexa"]    = r.get("alexa_rank", "N/A")
-        except Exception as e:
-            data["securitytrails_error"] = str(e)
-    else:
-        data["securitytrails"] = "No API key"
-
-    # VirusTotal
+    # ── VirusTotal ────────────────────────────
     vt_key = os.getenv("VIRUSTOTAL_API_KEY", "")
     if vt_key:
         try:
             r = requests.get(
                 f"https://www.virustotal.com/api/v3/domains/{target}",
                 headers={"x-apikey": vt_key},
-                timeout=config["general"]["timeout_seconds"]
+                timeout=timeout,
             ).json()
             attrs = r.get("data", {}).get("attributes", {})
             stats = attrs.get("last_analysis_stats", {})
@@ -95,10 +162,28 @@ def run(target: str, config: dict) -> dict:
             data["vt_suspicious"] = stats.get("suspicious", 0)
             data["vt_harmless"]   = stats.get("harmless", 0)
             data["vt_reputation"] = attrs.get("reputation", "N/A")
+            if data["vt_malicious"] and int(data["vt_malicious"]) > 0:
+                console.print(f"\n  [bold red][!] VirusTotal: {data['vt_malicious']} engine(s) flagged this domain![/bold red]\n")
         except Exception as e:
             data["virustotal_error"] = str(e)
     else:
-        data["virustotal"] = "No API key"
+        data["virustotal"] = "No API key (add VIRUSTOTAL_API_KEY to .env)"
+
+    # ── SecurityTrails ────────────────────────
+    st_key = os.getenv("SECURITYTRAILS_API_KEY", "")
+    if st_key:
+        try:
+            r = requests.get(
+                f"https://api.securitytrails.com/v1/domain/{target}",
+                headers={"APIKEY": st_key},
+                timeout=timeout,
+            ).json()
+            data["securitytrails_hostname"] = r.get("hostname", "N/A")
+            data["securitytrails_alexa"]    = r.get("alexa_rank", "N/A")
+        except Exception as e:
+            data["securitytrails_error"] = str(e)
+    else:
+        data["securitytrails"] = "No API key (add SECURITYTRAILS_API_KEY to .env)"
 
     _print_table("Domain Reconnaissance", data)
     return data
@@ -111,5 +196,10 @@ def _print_table(title, data):
     for k, v in data.items():
         if k == "module":
             continue
-        t.add_row(str(k), str(v) if v else "[dim]N/A[/dim]")
+        val = str(v) if v else "[dim]N/A[/dim]"
+        if "MISSING" in val:
+            val = f"[red]{val}[/red]"
+        elif "✔" in val:
+            val = f"[green]{val}[/green]"
+        t.add_row(str(k), val)
     console.print(t)
