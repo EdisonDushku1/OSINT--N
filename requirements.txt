@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════
-#  OSINT--N  |  requirements.txt  v2.0.0
+#  OSINT--N  |  requirements.txt  v3.0.0
 #  Install: pip install -r requirements.txt
-#  Requires: Python 3.8+
+#  Requires: Python 3.9+
 # ══════════════════════════════════════════════
 
 # ── HTTP & Async Requests ─────────────────────
@@ -27,12 +27,6 @@ phonenumbers>=8.13.35
 # ── Image Metadata / EXIF ─────────────────────
 exifread>=3.0.0
 Pillow>=10.3.0
-
-# ── Subdomain Discovery ───────────────────────
-sublist3r>=1.0
-
-# ── Web Archive ───────────────────────────────
-waybackpy>=3.0.6
 
 # ── CLI & Output ──────────────────────────────
 rich>=13.7.0
