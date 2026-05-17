@@ -1,12 +1,10 @@
 """
-OSINT--N | Module: Domain Reconnaissance
+OSINT--N | Module: IP Lookup + Geolocation + ASN + Threat Intel
 """
 
 import os
 import socket
 import requests
-import dns.resolver
-import whois
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -14,93 +12,114 @@ from rich import box
 console = Console()
 
 def run(target: str, config: dict) -> dict:
-    console.rule(f"[bold cyan] DOMAIN RECON — {target}")
-    data = {"module": "domain", "target": target}
+    console.rule(f"[bold cyan] IP LOOKUP — {target}")
+    data = {"module": "ip", "target": target}
+    timeout = config["general"]["timeout_seconds"]
 
-    # WHOIS
+    # Resolve hostname → IP
     try:
-        w = whois.whois(target)
-        data["registrar"]     = w.registrar
-        data["creation_date"] = str(w.creation_date)
-        data["expiry_date"]   = str(w.expiration_date)
-        data["updated_date"]  = str(w.updated_date)
-        data["name_servers"]  = ", ".join(w.name_servers) if isinstance(w.name_servers, list) else str(w.name_servers)
-        data["registrant"]    = w.name or w.org or "N/A"
-        data["country"]       = w.country or "N/A"
-        data["emails"]        = ", ".join(w.emails) if isinstance(w.emails, list) else str(w.emails or "N/A")
+        resolved = socket.gethostbyname(target)
+        if resolved != target:
+            data["resolved_ip"] = resolved
+            console.print(f"  [dim]Resolved [bold]{target}[/bold] → {resolved}[/dim]\n")
+        ip = resolved
     except Exception as e:
-        data["whois_error"] = str(e)
+        data["resolve_error"] = str(e)
+        ip = target
 
-    # DNS Records
-    for rtype in config.get("dns_record_types", ["A", "AAAA", "MX", "NS", "TXT", "SOA"]):
-        try:
-            answers = dns.resolver.resolve(target, rtype)
-            data[f"dns_{rtype}"] = " | ".join(str(r) for r in answers)
-        except:
-            data[f"dns_{rtype}"] = "N/A"
-
-    # Resolved IP
-    try:
-        data["resolved_ip"] = socket.gethostbyname(target)
-    except:
-        data["resolved_ip"] = "N/A"
-
-    # Reverse DNS
-    try:
-        data["reverse_dns"] = socket.gethostbyaddr(data.get("resolved_ip", ""))[0]
-    except:
-        data["reverse_dns"] = "N/A"
-
-    # Wayback Machine
+    # ── ipinfo.io — geo + org ─────────────────
     try:
         r = requests.get(
-            f"https://archive.org/wayback/available?url={target}",
-            timeout=config["general"]["timeout_seconds"]
+            f"https://ipinfo.io/{ip}/json",
+            timeout=timeout,
+            headers={"Accept": "application/json"},
         ).json()
-        snap = r.get("archived_snapshots", {}).get("closest", {})
-        data["wayback_available"]  = snap.get("available", False)
-        data["wayback_url"]        = snap.get("url", "N/A")
-        data["wayback_timestamp"]  = snap.get("timestamp", "N/A")
+        data["ip"]        = r.get("ip", "N/A")
+        data["hostname"]  = r.get("hostname", "N/A")
+        data["city"]      = r.get("city", "N/A")
+        data["region"]    = r.get("region", "N/A")
+        data["country"]   = r.get("country", "N/A")
+        data["location"]  = r.get("loc", "N/A")
+        data["org"]       = r.get("org", "N/A")
+        data["timezone"]  = r.get("timezone", "N/A")
+        data["postal"]    = r.get("postal", "N/A")
+        if data["location"] and data["location"] != "N/A":
+            data["google_maps"] = f"https://maps.google.com/?q={data['location']}"
     except Exception as e:
-        data["wayback_error"] = str(e)
+        data["ipinfo_error"] = str(e)
 
-    # SecurityTrails — DNS history
-    st_key = os.getenv("SECURITYTRAILS_API_KEY", "")
-    if st_key:
+    # ── ipapi.co — extra ASN / currency data ──
+    try:
+        r = requests.get(
+            f"https://ipapi.co/{ip}/json/",
+            timeout=timeout,
+            headers={"User-Agent": "OSINT-N/3.0"},
+        ).json()
+        data["asn"]           = r.get("asn", "N/A")
+        data["org_name"]      = r.get("org", "N/A")
+        data["isp"]           = r.get("isp", "N/A")
+        data["country_name"]  = r.get("country_name", "N/A")
+        data["currency"]      = r.get("currency", "N/A")
+        data["calling_code"]  = r.get("country_calling_code", "N/A")
+        data["languages"]     = r.get("languages", "N/A")
+    except Exception as e:
+        data["ipapi_error"] = str(e)
+
+    # ── Reverse DNS ───────────────────────────
+    try:
+        data["reverse_dns"] = socket.gethostbyaddr(ip)[0]
+    except Exception:
+        data["reverse_dns"] = "N/A"
+
+    # ── AbuseIPDB — threat intel ──────────────
+    abuse_key = os.getenv("ABUSEIPDB_API_KEY", "")
+    if abuse_key:
         try:
             r = requests.get(
-                f"https://api.securitytrails.com/v1/domain/{target}",
-                headers={"APIKEY": st_key},
-                timeout=config["general"]["timeout_seconds"]
-            ).json()
-            data["securitytrails_hostname"] = r.get("hostname", "N/A")
-            data["securitytrails_alexa"]    = r.get("alexa_rank", "N/A")
+                "https://api.abuseipdb.com/api/v2/check",
+                params={"ipAddress": ip, "maxAgeInDays": 90, "verbose": True},
+                headers={"Key": abuse_key, "Accept": "application/json"},
+                timeout=timeout,
+            ).json().get("data", {})
+            score = r.get("abuseConfidenceScore", 0)
+            data["abuse_confidence_score"] = f"{score}%"
+            data["abuse_total_reports"]    = r.get("totalReports", 0)
+            data["abuse_last_reported"]    = r.get("lastReportedAt", "N/A")
+            data["abuse_is_whitelisted"]   = r.get("isWhitelisted", False)
+            data["abuse_usage_type"]       = r.get("usageType", "N/A")
+            if score >= 80:
+                console.print(f"\n  [bold red][!] HIGH ABUSE SCORE: {score}% — This IP is likely malicious![/bold red]\n")
+            elif score >= 30:
+                console.print(f"\n  [yellow][!] Moderate abuse score: {score}%[/yellow]\n")
         except Exception as e:
-            data["securitytrails_error"] = str(e)
+            data["abuseipdb_error"] = str(e)
     else:
-        data["securitytrails"] = "No API key"
+        data["abuseipdb"] = "No API key (add ABUSEIPDB_API_KEY to .env)"
 
-    # VirusTotal
-    vt_key = os.getenv("VIRUSTOTAL_API_KEY", "")
-    if vt_key:
+    # ── Shodan — open ports/services ──────────
+    shodan_key = os.getenv("SHODAN_API_KEY", "")
+    if shodan_key:
         try:
             r = requests.get(
-                f"https://www.virustotal.com/api/v3/domains/{target}",
-                headers={"x-apikey": vt_key},
-                timeout=config["general"]["timeout_seconds"]
+                f"https://api.shodan.io/shodan/host/{ip}",
+                params={"key": shodan_key},
+                timeout=timeout,
             ).json()
-            attrs = r.get("data", {}).get("attributes", {})
-            stats = attrs.get("last_analysis_stats", {})
-            data["vt_malicious"]  = stats.get("malicious", 0)
-            data["vt_suspicious"] = stats.get("suspicious", 0)
-            data["vt_harmless"]   = stats.get("harmless", 0)
-            data["vt_reputation"] = attrs.get("reputation", "N/A")
+            ports = r.get("ports", [])
+            data["shodan_ports"]       = ", ".join(str(p) for p in ports[:20]) or "N/A"
+            data["shodan_os"]          = r.get("os", "N/A")
+            data["shodan_last_update"] = r.get("last_update", "N/A")
+            data["shodan_tags"]        = ", ".join(r.get("tags", [])) or "N/A"
+            vulns = r.get("vulns", {})
+            data["shodan_vulns"]       = ", ".join(vulns.keys()) if vulns else "None"
+            if vulns:
+                console.print(f"\n  [bold red][!] Shodan found {len(vulns)} CVE(s): {', '.join(list(vulns.keys())[:5])}[/bold red]\n")
         except Exception as e:
-            data["virustotal_error"] = str(e)
+            data["shodan_error"] = str(e)
     else:
-        data["virustotal"] = "No API key"
+        data["shodan"] = "No API key (add SHODAN_API_KEY to .env)"
 
-    _print_table("Domain Reconnaissance", data)
+    _print_table("IP Intelligence Report", data)
     return data
 
 
@@ -111,5 +130,9 @@ def _print_table(title, data):
     for k, v in data.items():
         if k == "module":
             continue
-        t.add_row(str(k), str(v) if v else "[dim]N/A[/dim]")
+        val = str(v) if v else "[dim]N/A[/dim]"
+        if "abuse_confidence" in k and "%" in val:
+            score = int(val.replace("%", ""))
+            val = f"[red]{val}[/red]" if score >= 50 else f"[yellow]{val}[/yellow]" if score >= 20 else f"[green]{val}[/green]"
+        t.add_row(str(k), val)
     console.print(t)
