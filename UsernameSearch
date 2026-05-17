@@ -1,5 +1,5 @@
-"""
-OSINT--N | Module: Username Search (Async)
+ """
+OSINT--N | Module: Username Search (Async) — 50+ platforms
 """
 
 import asyncio
@@ -11,78 +11,136 @@ from rich import box
 console = Console()
 
 PLATFORMS = {
-    "GitHub":      "https://github.com/{}",
-    "Twitter":     "https://twitter.com/{}",
-    "Instagram":   "https://www.instagram.com/{}/",
-    "Reddit":      "https://www.reddit.com/user/{}",
-    "TikTok":      "https://www.tiktok.com/@{}",
-    "Pinterest":   "https://www.pinterest.com/{}/",
-    "Twitch":      "https://www.twitch.tv/{}",
-    "YouTube":     "https://www.youtube.com/@{}",
-    "Telegram":    "https://t.me/{}",
-    "Snapchat":    "https://www.snapchat.com/add/{}",
-    "SoundCloud":  "https://soundcloud.com/{}",
-    "Spotify":     "https://open.spotify.com/user/{}",
-    "Pastebin":    "https://pastebin.com/u/{}",
-    "Keybase":     "https://keybase.io/{}",
-    "GitLab":      "https://gitlab.com/{}",
-    "Medium":      "https://medium.com/@{}",
-    "Dev.to":      "https://dev.to/{}",
-    "Hackerone":   "https://hackerone.com/{}",
-    "Bugcrowd":    "https://bugcrowd.com/{}",
-    "ProductHunt": "https://www.producthunt.com/@{}",
+    # Social
+    "GitHub":          "https://github.com/{}",
+    "Twitter/X":       "https://twitter.com/{}",
+    "Instagram":       "https://www.instagram.com/{}/",
+    "Reddit":          "https://www.reddit.com/user/{}",
+    "TikTok":          "https://www.tiktok.com/@{}",
+    "Pinterest":       "https://www.pinterest.com/{}/",
+    "Twitch":          "https://www.twitch.tv/{}",
+    "YouTube":         "https://www.youtube.com/@{}",
+    "Telegram":        "https://t.me/{}",
+    "Snapchat":        "https://www.snapchat.com/add/{}",
+    "Facebook":        "https://www.facebook.com/{}",
+    "LinkedIn":        "https://www.linkedin.com/in/{}",
+    "Tumblr":          "https://{}.tumblr.com",
+    "Flickr":          "https://www.flickr.com/people/{}",
+    "Vimeo":           "https://vimeo.com/{}",
+    "Dailymotion":     "https://www.dailymotion.com/{}",
+    "Periscope":       "https://www.periscope.tv/{}",
+    # Dev / Tech
+    "GitLab":          "https://gitlab.com/{}",
+    "Bitbucket":       "https://bitbucket.org/{}",
+    "Medium":          "https://medium.com/@{}",
+    "Dev.to":          "https://dev.to/{}",
+    "Hackerone":       "https://hackerone.com/{}",
+    "Bugcrowd":        "https://bugcrowd.com/{}",
+    "CodePen":         "https://codepen.io/{}",
+    "Replit":          "https://replit.com/@{}",
+    "StackOverflow":   "https://stackoverflow.com/users/{}",
+    "Hackernews":      "https://news.ycombinator.com/user?id={}",
+    "Npm":             "https://www.npmjs.com/~{}",
+    "PyPI":            "https://pypi.org/user/{}",
+    "DockerHub":       "https://hub.docker.com/u/{}",
+    # Music / Creative
+    "SoundCloud":      "https://soundcloud.com/{}",
+    "Spotify":         "https://open.spotify.com/user/{}",
+    "Bandcamp":        "https://{}.bandcamp.com",
+    "Mixcloud":        "https://www.mixcloud.com/{}",
+    "Last.fm":         "https://www.last.fm/user/{}",
+    "Behance":         "https://www.behance.net/{}",
+    "Dribbble":        "https://dribbble.com/{}",
+    "DeviantArt":      "https://{}.deviantart.com",
+    "ArtStation":      "https://www.artstation.com/{}",
+    # Gaming
+    "Steam":           "https://steamcommunity.com/id/{}",
+    "Xbox":            "https://account.xbox.com/en-US/profile?gamertag={}",
+    "Roblox":          "https://www.roblox.com/user.aspx?username={}",
+    "Minecraft":       "https://namemc.com/profile/{}",
+    "Lichess":         "https://lichess.org/@/{}",
+    "Chess.com":       "https://www.chess.com/member/{}",
+    # Other
+    "Pastebin":        "https://pastebin.com/u/{}",
+    "Keybase":         "https://keybase.io/{}",
+    "ProductHunt":     "https://www.producthunt.com/@{}",
+    "AboutMe":         "https://about.me/{}",
+    "Gravatar":        "https://gravatar.com/{}",
+    "VK":              "https://vk.com/{}",
+    "Mastodon":        "https://mastodon.social/@{}",
+    "Bluesky":         "https://bsky.app/profile/{}",
+    "Linktree":        "https://linktr.ee/{}",
 }
 
 NOT_FOUND_INDICATORS = [
-    "not found", "doesn't exist", "no results",
-    "page not found", "404", "user not found",
-    "this account doesn't exist", "sorry, this page isn't available"
+    "not found", "doesn't exist", "no results", "page not found",
+    "404", "user not found", "this account doesn't exist",
+    "sorry, this page isn't available", "this page isn't available",
+    "not available", "no user found", "profile not found",
 ]
 
 async def check_platform(client: httpx.AsyncClient, platform: str, url: str, username: str) -> dict:
     try:
         r = await client.get(url, timeout=10, follow_redirects=True)
         body = r.text.lower()
-        found = r.status_code == 200 and not any(x in body for x in NOT_FOUND_INDICATORS)
+        # 404 = definitely not found
+        if r.status_code == 404:
+            found = False
+        elif r.status_code == 200:
+            found = not any(x in body for x in NOT_FOUND_INDICATORS)
+        else:
+            found = False
         return {"platform": platform, "url": url, "status": r.status_code, "found": found}
-    except Exception as e:
+    except Exception:
         return {"platform": platform, "url": url, "status": "error", "found": False}
 
 async def _run_async(username: str) -> list:
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    results = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         tasks = [
             check_platform(client, platform, url.format(username), username)
             for platform, url in PLATFORMS.items()
         ]
         results = await asyncio.gather(*tasks)
-    return results
+    return list(results)
 
 def run(target: str, config: dict) -> dict:
     console.rule(f"[bold cyan] USERNAME SEARCH — {target}")
     data = {"module": "username", "target": target}
 
+    console.print(f"\n  [dim]Checking {len(PLATFORMS)} platforms asynchronously...[/dim]\n")
     results = asyncio.run(_run_async(target))
 
-    t = Table(title=f"Username: {target}", box=box.ROUNDED,
-              border_style="cyan", title_style="bold cyan")
-    t.add_column("Platform",  style="bold yellow", no_wrap=True)
-    t.add_column("Status",    style="bold", justify="center")
-    t.add_column("URL",       style="dim")
+    found_results  = sorted([r for r in results if r["found"]],     key=lambda x: x["platform"])
+    missing_results = sorted([r for r in results if not r["found"]], key=lambda x: x["platform"])
 
-    found_list = []
-    for res in sorted(results, key=lambda x: x["platform"]):
-        if res["found"]:
-            found_list.append(res["platform"])
-            t.add_row(res["platform"], "[green]✔ FOUND[/green]", res["url"])
-            data[f"{res['platform'].lower()}_url"] = res["url"]
-        else:
-            status_str = str(res["status"])
-            t.add_row(res["platform"], f"[red]✘ {status_str}[/red]", res["url"])
+    # Found table
+    if found_results:
+        t = Table(
+            title=f"[green]✔ Found — {target}[/green]",
+            box=box.ROUNDED,
+            border_style="green",
+            title_style="bold green",
+        )
+        t.add_column("Platform", style="bold yellow", no_wrap=True)
+        t.add_column("URL",      style="cyan")
+        for res in found_results:
+            t.add_row(res["platform"], res["url"])
+            data[f"found_{res['platform'].lower().replace('.','_').replace('/','_')}"] = res["url"]
+        console.print(t)
 
-    console.print(t)
-    data["found_count"]     = len(found_list)
-    data["found_platforms"] = ", ".join(found_list)
-    console.print(f"\n  [green]Found on {len(found_list)} platform(s)[/green] out of {len(PLATFORMS)} checked.\n")
+    # Not found table (compact)
+    not_found_names = " · ".join(r["platform"] for r in missing_results)
+    console.print(f"\n  [dim]Not found on:[/dim] [dim red]{not_found_names}[/dim red]\n")
+
+    data["found_count"]     = len(found_results)
+    data["found_platforms"] = ", ".join(r["platform"] for r in found_results)
+    data["checked_total"]   = len(PLATFORMS)
+    console.print(
+        f"  [bold green]Found on {len(found_results)} platform(s)[/bold green] "
+        f"[dim]out of {len(PLATFORMS)} checked.[/dim]\n"
+    )
     return data
